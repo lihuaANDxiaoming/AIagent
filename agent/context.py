@@ -30,10 +30,64 @@ class ContextManager:
         system = {"role": "system", "content": "\n\n".join(parts)}
         if len(self.history) <= self.recent_limit:
             return [system, *self.history]
-        omitted_messages = self.history[:-self.recent_limit]
+
+        # A message containing assistant tool_calls and all of its tool results
+        # form one protocol-level unit. Slicing the raw list can leave a tool
+        # result without its preceding call, which OpenAI-compatible APIs reject.
+        recent_messages, omitted_messages = self._trim_complete_groups()
         self.summary = self._summarize(omitted_messages)
         summary = {"role": "system", "content": "Earlier history summary:\n" + self.summary}
-        return [system, summary, *self.history[-self.recent_limit:]]
+        return [system, summary, *recent_messages]
+
+    def _trim_complete_groups(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        groups: list[list[dict[str, Any]]] = []
+        index = 0
+        while index < len(self.history):
+            message = self.history[index]
+            if message.get("role") == "assistant" and message.get("tool_calls"):
+                group = [message]
+                expected_ids = {
+                    call.get("id") for call in message["tool_calls"]
+                    if isinstance(call, dict) and call.get("id")
+                }
+                index += 1
+                while index < len(self.history):
+                    candidate = self.history[index]
+                    if candidate.get("role") != "tool":
+                        break
+                    # Keep every contiguous tool result with its assistant call.
+                    # The ID check documents the relationship but malformed tool
+                    # results are kept here so they never become standalone.
+                    if not expected_ids or candidate.get("tool_call_id") in expected_ids:
+                        group.append(candidate)
+                        index += 1
+                        continue
+                    break
+                groups.append(group)
+                continue
+
+            # Never send an already-orphaned tool result to the API.
+            if message.get("role") != "tool":
+                groups.append([message])
+            index += 1
+
+        selected: list[list[dict[str, Any]]] = []
+        selected_count = 0
+        for group in reversed(groups):
+            if selected and selected_count + len(group) > self.recent_limit:
+                break
+            selected.append(group)
+            selected_count += len(group)
+            # One atomic group may be larger than the configured limit; protocol
+            # validity takes precedence over the soft context-count target.
+            if selected_count >= self.recent_limit:
+                break
+        selected.reverse()
+
+        recent = [message for group in selected for message in group]
+        retained_ids = {id(message) for message in recent}
+        omitted = [message for message in self.history if id(message) not in retained_ids]
+        return recent, omitted
 
     @staticmethod
     def _summarize(messages: list[dict[str, Any]]) -> str:

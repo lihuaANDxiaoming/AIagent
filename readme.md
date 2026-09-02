@@ -1144,7 +1144,9 @@ Checkpoint 保留数量
 	pip install -r requirements.txt
 
 提供配置api：
-	$env:AGENT_API_KEY="你的 API Key"  （例如：sk-8e8216950a2e40608aca2efa8a3d7478）
+	$env:AGENT_API_KEY="你的 API Key"  
+
+（例如：$env:AGENT_API_KEY="sk-8e8216950a2e40608aca2efa8a3d7478"）
 
 	$env:AGENT_BASE_URL="https://api.deepseek.com"
 	$env:AGENT_MODEL="deepseek-chat"
