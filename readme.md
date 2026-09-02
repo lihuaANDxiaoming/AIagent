@@ -459,7 +459,7 @@ context = [
 
 这已经是一个非常不错的考核亮点。
 
-### 6、最后再做 UI（`main.py`）
+### 6、UI（`main.py`）
 
 ***本质：***
 
@@ -499,158 +499,652 @@ Agent 判断任务完成
    ↓
 等待下一个任务 / 退出
 
-# 3. 预计 待完成（改进点）
+# 3. 改进
 
-#### 1.Memory
+3.1 项目架构
 
-保存“对后续任务有价值的长期状态”
+coding-agent/
+│
+├── main.py
+├── config.py
+│
+├── agent/
+│   ├── loop.py
+│   ├── context.py
+│   ├── memory.py
+│   ├── prompt.py
+│   ├── safety.py
+│   └── checkpoint.py
+│
+├── llm/
+│   └── client.py
+│
+├── tools/
+│   ├── filesystem.py
+│   ├── shell.py
+│   └── registry.py
+│
+├── storage/
+│   ├── memory.json
+│   └── checkpoints/
+│
+├── workspace/
+│
+├── tests/
+│   ├── test_tools.py
+│   ├── test_safety.py
+│   └── test_agent.py
+│
+└── README.md
 
-Coding Agent 的 memory 最简单可以是：
+3.2 新增部分
 
-<pre class="overflow-visible! px-0!" data-start="6204" data-end="6227"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="relative"><div class="pe-11 pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>memory.json</span></code></pre></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></pre>
+| 新增/增强功能                   | 具体在哪                                         | 作用                                                                |
+| ------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------- |
+| **长期 Memory**           | `agent/memory.py`+`storage/memory.json`      | 记录跨任务项目状态、技术决策、重要文件、用户长期偏好                |
+| **短期 Context 管理增强** | `agent/context.py`                             | 不只是存 messages，还负责最近消息保留、历史摘要、上下文裁剪         |
+| **Error Feedback Loop**   | `agent/loop.py`                                | 工具失败后不退出，把 stderr/错误结果重新喂给 LLM，让 Agent 自主修复 |
+| **Safety 权限控制**       | `agent/safety.py`                              | workspace 边界、危险命令检查、ALLOW/CONFIRM/DENY                    |
+| **用户授权机制**          | `agent/safety.py`+`agent/loop.py`            | 遇到敏感操作时，由 loop 暂停执行并请求授权                          |
+| **Rollback / Checkpoint** | `agent/checkpoint.py`+`storage/checkpoints/` | 文件修改前生成快照，支持恢复到最近历史状态                          |
+| **持久化层**              | `storage/`                                     | 保存 Memory、checkpoint 等需要跨运行保留的数据                      |
+| **Agent Runtime 测试**    | `tests/`                                       | 测 Safety、Tools、Agent Loop、错误恢复等，而不仅仅测试业务代码      |
+| **安全配置项**            | `config.py`                                    | workspace 根目录、最大 Agent 轮数、checkpoint 数量、危险命令规则等  |
 
-里面保存：
+## 1.Memory
 
-<pre class="overflow-visible! px-0!" data-start="6236" data-end="6453"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="relative h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute inset-x-4 top-12 bottom-4"><div class="pointer-events-none sticky z-40 shrink-0 z-1!"><div class="sticky bg-token-border-light"></div></div></div><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class=""><div class="relative"><div class=""><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>{
-  "project": </span><span class="ͼz">"Todo Web App"</span><span>,
-  "language": </span><span class="ͼz">"Python"</span><span>,
-  "framework": </span><span class="ͼz">"Flask"</span><span>,
-  "important_files": [
-    </span><span class="ͼz">"app.py"</span><span>,
-    </span><span class="ͼz">"templates/index.html"</span><span>
-  ],
-  "decisions": [
-    </span><span class="ͼz">"Use SQLite"</span><span>,
-    </span><span class="ͼz">"Use pytest"</span><span>
-  ]
-}</span></code></pre></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></div></div></pre>
+***本质***
 
-下一轮模型可以读取。
+	保存“对后续任务有价值的状态信息”，通过对当前任务上下文、长期项目知识以及持久化存储的分层管理，实现 Agent 在跨轮次、跨任务、跨会话场景下对项目状态、用户约束与关键决策的持续利用。
 
-但我提醒你：
+***组成：***
 
-> **这个题目首先考 agent runtime，不是 memory research。**
+#### 1.1 Short-term Context：短期上下文记忆
 
-所以优先级应该是：
+***概要：***
 
-<pre class="overflow-visible! px-0!" data-start="6535" data-end="6630"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="relative"><div class="pe-11 pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>Agent Loop
-★★★★★
+	保存当前任务执行过程中产生的上下文信息，并将其作为下一轮 LLM 推理的背景知识。让模型能够感知刚才的信息，包括用户要求、已经调用过的工具、文件内容、执行结果以及错误信息等，从而维持同一任务内部连续的推理与操作能力。
 
-Tools
-★★★★★
+***实现方法：***
 
-Context
-★★★★
+	在 `agent/context.py`中维护当前任务的 `messages`表，将用户输入、LLM 输出、tool call 以及 tool result 按顺序加入上下文。在每次重新调用 LLM 时，将当前有效上下文重新组织后发送给模型。
 
-Error Handling
-★★★★
+***基本结构：***
 
-Memory
-★★★
+System Prompt
++
+User Task
++
+Assistant Tool Call
++
+Tool Result
++
+Assistant Tool Call
++
+Tool Result
++
+...
 
-UI
-★★</span></code></pre></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></pre>
+#### 1.2 Long-term Project Memory：长期记忆增强（Summarization + Truncation）
 
----
+***概要：***
 
-#### 2、 Error Feedback Loop
+长期记忆：从短期上下文中筛选并提取对未来任务仍具有价值的稳定信息，并在后续任务中重新注入模型上下文（例如项目技术栈、架构决策、用户长期约束...）。
 
-当工具执行失败以后，Agent 怎么消费错误，并自主进入下一轮修复。
+记忆增强：由于上下文窗口有限，通过 Summarization 与 Truncation 对历史信息进行压缩、筛选和抽象，从而提升信息利用效率。
 
-例如模型生成：
+***实现方法：***
 
-<pre class="overflow-visible! px-0!" data-start="6692" data-end="6716"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="relative h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute inset-x-4 top-12 bottom-4"><div class="pointer-events-none sticky z-40 shrink-0 z-1!"><div class="sticky bg-token-border-light"></div></div></div><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class=""><div class="relative"><div class=""><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span class="ͼ11">print</span><span>(</span><span class="ͼ11">foo</span><span>)</span></code></pre></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></div></div></pre>
+在 `agent/memory.py`中设计 `MemoryManager`，负责长期信息的提取、更新与检索。
 
-执行：
+可以将长期记忆划分为：
 
-<pre class="overflow-visible! px-0!" data-start="6723" data-end="6749"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="relative h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute inset-x-4 top-12 bottom-4"><div class="pointer-events-none sticky z-40 shrink-0 z-1!"><div class="sticky bg-token-border-light"></div></div></div><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class=""><div class="relative"><div class=""><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>python main.py</span></code></pre></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></div></div></pre>
-
-返回：
-
-<pre class="overflow-visible! px-0!" data-start="6756" data-end="6797"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="relative"><div class="pe-11 pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>NameError: foo is not defined</span></code></pre></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></pre>
-
-不要结束。
-
-把错误重新发给模型：
-
-<pre class="overflow-visible! px-0!" data-start="6818" data-end="6905"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="relative"><div class="pe-11 pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>Tool result:
-
-Command failed.
-
-stderr:
-NameError: name 'foo' is not defined</span></code></pre></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></pre>
-
-模型：
-
-<pre class="overflow-visible! px-0!" data-start="6912" data-end="6938"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="relative"><div class="pe-11 pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>我需要修改 main.py。</span></code></pre></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></pre>
-
-然后：
-
-<pre class="overflow-visible! px-0!" data-start="6945" data-end="6974"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="relative"><div class="pe-11 pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>read
-↓
-edit
-↓
-run</span></code></pre></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></pre>
-
-这才真正体现：
-
-> **Agent，而不是一次性代码生成。**
-
----
-
-#### 3、安全性
-
-控制智能体的交互安全而不越界（擅自修改系统文件等）
-
-因为：
-
-<pre class="overflow-visible! px-0!" data-start="7036" data-end="7076"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="relative h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute inset-x-4 top-12 bottom-4"><div class="pointer-events-none sticky z-40 shrink-0 z-1!"><div class="sticky bg-token-border-light"></div></div></div><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class=""><div class="relative"><div class=""><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span class="ͼ11">subprocess</span><span class="ͼv">.</span><span>run(</span><span class="ͼ11">shell</span><span class="ͼv">=</span><span class="ͼy">True</span><span>)</span></code></pre></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></div></div></pre>
-
-非常危险。
-
-至少限制 workspace：
-
-<pre class="overflow-visible! px-0!" data-start="7102" data-end="7138"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="relative"><div class="pe-11 pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>/root/project/workspace/</span></code></pre></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></pre>
-
-工具不能访问：
-
-<pre class="overflow-visible! px-0!" data-start="7149" data-end="7187"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="relative"><div class="pe-11 pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>/etc
-/root/.ssh
-/root/.env</span></code></pre></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></pre>
+```
+project_info
+important_files
+commands
+decisions
+constraints
+completed_tasks
+```
 
 例如：
 
-<pre class="overflow-visible! px-0!" data-start="7194" data-end="7426"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="relative h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute inset-x-4 top-12 bottom-4"><div class="pointer-events-none sticky z-40 shrink-0 z-1!"><div class="sticky bg-token-border-light"></div></div></div><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class=""><div class="relative"><div class=""><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span class="ͼv">def</span><span></span><span class="ͼ11">safe_path</span><span>(</span><span class="ͼ11">path</span><span>):
-    </span><span class="ͼ11">resolved</span><span></span><span class="ͼv">=</span><span> (</span><span class="ͼ11">WORKSPACE</span><span></span><span class="ͼv">/</span><span></span><span class="ͼ11">path</span><span>)</span><span class="ͼv">.</span><span>resolve()
+```
+{
+  "project": {
+    "language": "Python",
+    "framework": "Flask"
+  },
+  "commands": {
+    "test": "pytest"
+  },
+  "important_files": [
+    "app.py",
+    "auth.py"
+  ],
+  "decisions": [
+    "Use SQLite",
+    "Use JWT authentication"
+  ]
+}
+```
 
-    </span><span class="ͼv">if</span><span></span><span class="ͼv">not</span><span></span><span class="ͼ11">str</span><span>(</span><span class="ͼ11">resolved</span><span>)</span><span class="ͼv">.</span><span>startswith(</span><span class="ͼ11">str</span><span>(</span><span class="ͼ11">WORKSPACE</span><span>)):
-        </span><span class="ͼv">raise</span><span></span><span class="ͼ11">PermissionError</span><span>(
-            </span><span class="ͼz">"Path outside workspace."</span><span>
-        )
+同时使用两种上下文压缩机制：
 
-    </span><span class="ͼv">return</span><span></span><span class="ͼ11">resolved</span></code></pre></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></div></div></pre>
+```
+History Summarization
+=
+将较早但仍有价值的历史压缩为摘要
 
-命令也可以过滤：
+Context Truncation
+=
+直接删除已经失去价值的低信息内容
+```
 
-<pre class="overflow-visible! px-0!" data-start="7438" data-end="7490"><div class="relative w-full mt-4 mb-1"><div class=""><div class="contents"><div class="relative"><div class="h-full min-h-0 min-w-0"><div class="h-full min-h-0 min-w-0"><div class="border border-token-border-light border-radius-3xl corner-superellipse/1.1 rounded-3xl"><div class="h-full w-full border-radius-3xl bg-(--code-block-surface) corner-superellipse/1.1 overflow-clip rounded-3xl [--code-block-surface:var(--bg-elevated-secondary)] dark:[--code-block-surface:var(--composer-surface-primary)] lxnfua_clipPathFallback"><div class="pointer-events-none absolute end-1.5 top-1 z-2 md:end-2 md:top-1"></div><div class="relative"><div class="pe-11 pt-3"><div class="relative z-0 flex max-w-full"><div id="code-block-viewer" dir="ltr" class="q9tKkq_viewer cm-editor z-10 light:cm-light dark:cm-light flex h-full w-full flex-col items-stretch ͼs ͼ16"><div class="cm-scroller"><pre class="cm-content q9tKkq_readonly m-0"><code><span>rm -rf /
+例如：
+
+```
+原始历史：
+
+读取 app.py
+读取 auth.py
+发现登录逻辑缺少密码哈希校验
+修改 auth.py
+第一次 pytest 失败
+修复测试 fixture
+第二次 pytest 全部通过
+```
+
+可以压缩为：
+
+```
+Summary:
+认证逻辑位于 auth.py，
+已加入密码哈希校验，
+相关测试已经通过。
+```
+
+而类似：
+
+```
+File written successfully.
+Command finished in 0.8s.
+```
+
+这类早期低价值信息可以直接 Truncate，不再继续发送给模型。
+
+#### 1.3 Persistent Storage：记忆持久化存储
+
+***概要：***
+
+	将需要长期保留的 Memory 写入外部存储，使 Agent 在程序关闭、重新启动或进入新的对话任务后，仍然能够恢复之前积累的项目知识，从而支持新任务冷启动以及同一项目在不同会话之间的知识共享。
+
+***实现方法：***
+
+用storage/memory.json作为持久化介质。
+
+在 Agent 启动时：
+
+```
+load memory.json
+↓
+恢复 Long-term Project Memory
+↓
+注入当前 Agent Context
+```
+
+任务完成后：
+
+```
+提取长期有效信息
+↓
+更新 Memory
+↓
+save memory.json
+```
+
+可以在 `<span>agent/memory.py</span>` 中实现：
+
+```
+class MemoryManager:
+    def load(self):
+    def save(self):
+    def remember(self, key, value):
+    def recall(self, key):
+```
+
+## 2、Error Feedback Loop
+
+***本质：***
+
+	将工具执行、代码运行和测试过程中产生的错误信息重新反馈给 Agent，使模型能够基于真实环境结果进行再次推理、定位问题、修改代码并重新验证，从而形成自纠错闭环。
+
+***组成：***
+
+#### 2.1 Error Capture：错误捕获
+
+**概要：**
+
+负责从工具执行结果中提取真实环境反馈，包括标准输出、标准错误、返回码、异常信息以及测试结果，使 Agent 能够感知某次操作是成功还是失败，以及失败的具体原因。
+
+**实现方法：**
+
+主要由 `tools/shell.py`中的 `run_command` 提供底层执行能力。
+
+**实例：**
+
+Agent 执行：
+
+run_command("python main.py")
+
+程序返回：
+
+stdout:
+
+stderr:
+NameError: name 'foo' is not defined
+
+returncode:
+1
+
+此时系统能够明确判断：
+
+此次运行失败
++
+错误类型为 NameError
++
+错误内容为 foo 未定义
+
+这些信息将作为后续自纠错的输入。
+
+#### 2.2 Feedback Injection：错误反馈注入
+
+***概要：***
+
+	将 Tool 执行产生的错误结果重新加入当前 Short-term Context，使下一轮 LLM 调用能够看到真实环境中的失败信息，并据此继续推理。
+
+***实现方法：***
+
+在 `agent/loop.py` 执行 Tool 后，无论成功还是失败，都将 Tool Result 写入 `agent/context.py` 管理的消息序列。
+
+***实例：***
+
+第一次：
+
+```
+LLM:
+run_command("pytest")
+```
+
+返回：
+
+```
+1 failed, 8 passed
+
+AssertionError:
+expected 4, got 5
+```
+
+系统不会在终端打印错误后就结束，而是将错误信息
+
+```
+pytest failed
+AssertionError
+expected 4, got 5
+```
+
+重新放入 Context，帮助因此下一轮模型继续定位代码问题。
+
+#### 2.3 Error Diagnosis：错误诊断与重新推理
+
+***概要：***
+
+LLM 根据上一轮注入的错误信息重新分析当前任务状态，判断错误可能来自哪个文件、哪段逻辑或哪一步操作，并自主选择下一步 Tool。
+
+这是 Error Feedback Loop 中真正体现 Agent 智能性的部分。
+
+***实现方法：***
+
+	agent/loop.py 不直接硬编码，而是将将真实错误交给 LLM，由模型结合用户任务+之前读过的文件+之前做出的修改+当前错误信息共同决定下一步 Action。
+
+#### 2.4 Retry & Self-Correction：重试与自主修正
+
+***概要：***
+
+在完成错误分析和代码修改后，Agent 需要重新执行原有测试或运行命令，对修复结果进行验证。
+
+如果仍然失败，则继续进入下一轮 Error Feedback Loop；如果成功，则退出修复循环并进入最终回答。
+
+***实现方法：***
+
+在 `agent/loop.py` 中保持持续循环：
+
+```
+Tool 执行失败
+↓
+错误加入 Context
+↓
+重新调用 LLM
+↓
+再次操作
+```
+
+直到测试通过或达到 MAX_AGENT_STEPS（可设置，例如MAX_AGENT_STEPS=20）
+
+#### 2.5 Runtime Verification：运行结果验证
+
+***概要：***
+
+	不仅根据“文件是否成功写入”判断任务完成，还要求 Agent 通过测试、编译或实际运行结果对修改进行验证，从而降低“代码看起来正确但实际上无法运行”的问题。
+
+***实现方法：***
+
+根据不同项目类型选择对应验证方式（例如 Python→ pytest / python main.py）
+
+验证命令仍然通过run_command执行。
+
+Agent Prompt 中可以明确要求：
+
+```
+修改代码后尽可能运行测试或构建命令。
+如果验证失败，不要直接宣布任务完成。
+```
+
+同时在 `<span>tests/test_agent_loop.py</span>` 中测试 Agent Runtime 是否能够正确处理：
+
+```
+Tool Failure
+Error Injection
+Retry
+Successful Recovery
+```
+
+实例：
+
+Agent 写入：
+
+```
+def add(a, b):
+    return a - b
+```
+
+文件写入工具本身会返回：
+
+```
+File written successfully.
+```
+
+但这只能证明：
+
+```
+文件写成功了
+```
+
+并不能证明：
+
+```
+功能正确
+```
+
+继续执行：
+
+```
+pytest
+```
+
+得到：
+
+```
+FAILED
+Expected: 5
+Actual: -1
+```
+
+Agent 根据反馈修改：
+
+```
+def add(a, b):
+    return a + b
+```
+
+再次运行：
+
+```
+pytest
+```
+
+得到：
+
+```
+PASSED
+```
+
+此时才能认为该修改真正经过环境验证。
+
+#### 2.6 整体工作流程
+
+```
+LLM
+↓
+生成 Tool Call
+↓
+执行 Tool
+↓
+获得 Tool Result
+↓
+┌────────────────────────┐
+│                        │
+成功                    失败
+│                        │
+继续判断任务           捕获 Error
+│                        ↓
+│                  Feedback Injection
+│                        ↓
+│                      LLM
+│                        ↓
+│                 Error Diagnosis
+│                        ↓
+│                  read / edit
+│                        ↓
+│                     retry
+│                        │
+└───────────────←────────┘
+        ↓
+    Validation PASS
+        ↓
+    Final Answer
+```
+
+## 3、安全性
+
+***本质***
+
+对 Coding Agent 的文件访问、命令执行和代码修改行为进行风险控制，避免模型误操作影响真实环境，并保证关键修改具备可恢复性。
+
+***组成：***
+
+#### 3.1 Safety 权限控制
+
+**概要：**
+
+对 Agent 的 Tool Call 进行风险分级，判断当前操作是否可以直接执行。
+
+实现方法：
+
+在 `agent/safety.py` 中实现权限判断，根据操作类型返回：
+
+```
+ALLOW
+CONFIRM
+DENY
+```
+
+基本规则例如：
+
+```
+workspace 内文件读写
+→ ALLOW
+
+workspace 外普通文件操作
+→ CONFIRM
+
+高风险系统文件或危险命令
+→ DENY
+```
+
+同时限制 Agent 默认只能操作指定的：
+
+```
+workspace/
+```
+
+并检查危险 Shell 命令，例如：
+
+```
+rm -rf /
 shutdown
 reboot
-curl ... | bash</span></code></pre></div></div></div></div></div></div></div></div></div><div class=""><div class=""></div></div></div></div></div></div></pre>
+curl ... | bash
+```
 
-面试的时候这会成为很好的设计决策：
+#### 3.2 用户授权机制
 
-> “由于 agent 拥有命令执行权限，我对 filesystem 与 shell tool 增加了 workspace sandbox 和危险命令检查。”
+**概要：**
+
+	对于具有一定风险但并非绝对禁止的操作，将最终决策权交给用户。
+
+**实现方法：**
+
+	`agent/safety.py` 负责判断是否需要人CONFIRM，`agent/loop.py` 负责暂停当前 Tool 执行并向用户请求授权。
+
+用户允许则执行 Tool；用户拒绝则 返回 Permission Denied→ 将结果重新反馈给 LLM→ Agent 重新规划
+
+**实例：**
+
+Agent 希望执行：
+
+```
+pip install flask-jwt-extended
+```
+
+由于会修改当前运行环境：
+
+```
+Safety → CONFIRM
+```
+
+系统向用户申请授权，得到允许后才真正执行。
 
 ---
 
+#### 3.3 Rollback / Checkpoint
+
+概要：
+
+	在文件修改之前保存 Workspace 的历史状态，使 Agent 修改错误或用户对结果不满意时可以恢复。
+
+实现方法：
+
+在 `agent/checkpoint.py` 中实现：
+
+```
+create_checkpoint()
+rollback()
+```
+
+对于：
+
+```
+write_file
+edit_file
+delete_file
+```
+
+等修改性操作，在真正执行前创建 Checkpoint，历史数据保存storage/checkpoints/
+
+实例：
+
+```
+Checkpoint 1
+修改 main.py
+
+Checkpoint 2
+修改 auth.py
+
+Checkpoint 3
+修改 config.py
+```
+
+如果用户要求：
+
+```
+撤销刚才修改
+```
+
+则可以恢复到最近一个 Checkpoint。
+
+---
+
+#### 安全配置项
+
+概要：
+
+将安全规则集中配置，避免权限判断和危险命令规则散落在不同代码文件中。
+
+实现方法：
+
+在 `<span>config.py</span>` 中统一设置：
+
+```
+WORKSPACE = "./workspace"
+
+MAX_AGENT_STEPS = 20
+
+MAX_CHECKPOINTS = 5
+
+CONFIRM_OUTSIDE_WORKSPACE = True
+
+BLOCKED_COMMANDS = [
+    "rm -rf /",
+    "shutdown",
+    "reboot"
+]
+```
+
+这些配置分别控制：
+
+```
+Agent 可操作范围
+最大自主执行轮数
+Checkpoint 保留数量
+越界访问授权策略
+危险命令规则
+```
+
+实例：
+
+可以根据不同运行环境设置不同安全等级：
+
+```
+开发模式
+→ workspace 内修改自动允许
+
+严格模式
+→ 文件修改需要确认
+
+只读模式
+→ 禁止所有写操作
+```
+
 # 4.项目运行指导
 
-下载环境包：
+初次使用请下载环境包：
 
 	pip install -r requirements.txt
 
 提供配置api：
-	$env:AGENT_API_KEY="你的 API Key"    sk-8e8216950a2e40608aca2efa8a3d7478
+	$env:AGENT_API_KEY="你的 API Key"  （例如：sk-8e8216950a2e40608aca2efa8a3d7478）
 
 	$env:AGENT_BASE_URL="https://api.deepseek.com"
 	$env:AGENT_MODEL="deepseek-chat"

@@ -48,6 +48,20 @@ class FileSystemTools:
         target.write_text(content.replace(old_text, new_text, 1), encoding="utf-8")
         return f"Updated {path}."
 
+    def delete_file(self, path: str) -> str:
+        import shutil
+
+        target = self._path(path)
+        if target == self.workspace:
+            raise ValueError("Cannot delete the workspace root.")
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.exists():
+            target.unlink()
+        else:
+            raise FileNotFoundError(path)
+        return f"Deleted {path}."
+
     def search_text(self, query: str, path: str = ".") -> str:
         target = self._path(path)
         files = [target] if target.is_file() else (item for item in target.rglob("*") if item.is_file())

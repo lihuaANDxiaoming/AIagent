@@ -16,24 +16,30 @@ def _schema(name: str, description: str, properties: dict[str, Any], required: l
 
 
 class ToolRegistry:
-    def __init__(self, filesystem: FileSystemTools, shell: ShellTools):
+    def __init__(self, filesystem: FileSystemTools, shell: ShellTools, checkpoint=None):
         string = lambda description: {"type": "string", "description": description}
         self._handlers: dict[str, Callable[..., str]] = {
             "list_files": filesystem.list_files,
             "read_file": filesystem.read_file,
             "write_file": filesystem.write_file,
             "edit_file": filesystem.edit_file,
+            "delete_file": filesystem.delete_file,
             "search_text": filesystem.search_text,
             "run_command": shell.run_command,
         }
+        if checkpoint is not None:
+            self._handlers["rollback_checkpoint"] = checkpoint.rollback
         self.schemas = [
             _schema("list_files", "List files and directories.", {"path": string("Relative directory; defaults to .")}, []),
             _schema("read_file", "Read a UTF-8 text file.", {"path": string("Relative file path")}, ["path"]),
             _schema("write_file", "Create a new UTF-8 text file.", {"path": string("Relative file path"), "content": string("Complete content")}, ["path", "content"]),
             _schema("edit_file", "Replace one unique text fragment in an existing file.", {"path": string("Relative file path"), "old_text": string("Exact existing text"), "new_text": string("Replacement text")}, ["path", "old_text", "new_text"]),
+            _schema("delete_file", "Delete a workspace file or directory after user approval.", {"path": string("Relative path")}, ["path"]),
             _schema("search_text", "Search text recursively in workspace files.", {"query": string("Exact text to find"), "path": string("Relative path; defaults to .")}, ["query"]),
             _schema("run_command", "Run a command with the workspace as working directory.", {"command": string("Command to execute")}, ["command"]),
         ]
+        if checkpoint is not None:
+            self.schemas.append(_schema("rollback_checkpoint", "Restore the latest or a named workspace checkpoint.", {"checkpoint_id": string("Optional checkpoint ID")}, []))
 
     def execute(self, name: str, arguments: str | dict[str, Any]) -> str:
         if name not in self._handlers:

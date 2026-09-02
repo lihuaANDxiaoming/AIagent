@@ -10,5 +10,6 @@ def test_context_keeps_recent_messages_and_workspace_state(tmp_path: Path):
         context.add({"role": "user", "content": str(number)})
     messages = context.messages()
     assert "main.py" in messages[0]["content"]
-    assert "2 earlier messages" in messages[1]["content"]
+    assert "Earlier history summary" in messages[1]["content"]
+    assert "0" in messages[1]["content"]
     assert [m["content"] for m in messages[-4:]] == ["2", "3", "4", "5"]

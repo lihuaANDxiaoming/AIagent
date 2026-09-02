@@ -16,6 +16,11 @@ class Config:
     max_rounds: int = 20
     context_window: int = 20
     command_timeout: int = 120
+    storage: Path = Path(__file__).parent / "storage"
+    max_checkpoints: int = 5
+    safety_mode: str = "development"
+    blocked_commands: tuple[str, ...] = ("rm -rf /", "shutdown", "reboot")
+    confirm_commands: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -27,4 +32,9 @@ class Config:
             max_rounds=int(os.getenv("AGENT_MAX_ROUNDS", "20")),
             context_window=int(os.getenv("AGENT_CONTEXT_WINDOW", "20")),
             command_timeout=int(os.getenv("AGENT_COMMAND_TIMEOUT", "120")),
+            storage=Path(os.getenv("AGENT_STORAGE", str(Path(__file__).parent / "storage"))).resolve(),
+            max_checkpoints=int(os.getenv("AGENT_MAX_CHECKPOINTS", "5")),
+            safety_mode=os.getenv("AGENT_SAFETY_MODE", "development"),
+            blocked_commands=tuple(filter(None, os.getenv("AGENT_BLOCKED_COMMANDS", "rm -rf /,shutdown,reboot").split(","))),
+            confirm_commands=tuple(filter(None, os.getenv("AGENT_CONFIRM_COMMANDS", "").split(","))),
         )
